@@ -14,6 +14,7 @@ Pipeline completo de engenharia de dados para extração, armazenamento e exposi
 - [Funcionalidades](#funcionalidades)
 - [Pré-requisitos](#pré-requisitos)
 - [Instalação e Execução](#instalação-e-execução)
+- [Configuração](#configuração) ⚙️
 - [Uso](#uso)
 - [Estrutura do Projeto](#estrutura-do-projeto)
 - [Decisões Técnicas](#decisões-técnicas)
@@ -230,6 +231,40 @@ cp .env.example .env
 # 5. Execute a API
 python -m uvicorn src.interfaces.api:app --reload
 ```
+
+---
+
+## ⚙️ Configuração
+
+### Variáveis de Ambiente
+
+O projeto usa arquivo `.env` para configuração. Todas as variáveis possuem valores padrão seguros.
+
+**Quick Setup**:
+```bash
+# Copiar template
+cp .env.example .env
+
+# Editar (mínimo: altere POSTGRES_PASSWORD)
+nano .env
+```
+
+**Principais Variáveis**:
+
+| Variável | Padrão | Descrição |
+|----------|--------|-----------|
+| `POSTGRES_HOST` | `localhost` | Servidor PostgreSQL |
+| `POSTGRES_PASSWORD` | ⚠️ `change_me_in_production` | **Altere em produção!** |
+| `API_PORT` | `8000` | Porta da API REST |
+| `TARGET_STATES` | `SP,MG,RJ` | Estados para extração (separados por vírgula) |
+| `LOG_LEVEL` | `INFO` | Nível de log (DEBUG/INFO/WARNING/ERROR) |
+
+**📖 Documentação Completa**: Ver [CONFIGURACAO.md](CONFIGURACAO.md) para:
+- Descrição detalhada de todas as 15+ variáveis
+- Templates para dev/staging/produção
+- Boas práticas de segurança
+- Scripts de validação
+- Troubleshooting
 
 ---
 
