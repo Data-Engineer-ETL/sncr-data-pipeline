@@ -1,0 +1,140 @@
+version: '3.8'
+
+services:
+  # PostgreSQL Database
+  postgres:
+    image: postgres:15-alpine
+    container_name: sncr_postgres
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-sncr_db}
+      POSTGRES_USER: ${POSTGRES_USER:-sncr_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change_me_in_production}
+      PGDATA: /var/lib/postgresql/data/pgdata
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./migrations/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-sncr_user} -d ${POSTGRES_DB:-sncr_db}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - sncr_network
+    restart: unless-stopped
+
+  # FastAPI Application
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: sncr_api
+    environment:
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_DB: ${POSTGRES_DB:-sncr_db}
+      POSTGRES_USER: ${POSTGRES_USER:-sncr_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change_me_in_production}
+      API_HOST: 0.0.0.0
+      API_PORT: 8000
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      BASE_URL: ${BASE_URL:-https://data-engineer-challenge-production.up.railway.app}
+    ports:
+      - "${API_PORT:-8000}:8000"
+    volumes:
+      - ./logs:/app/logs
+      - ./checkpoints:/app/checkpoints
+      - ./data:/app/data
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    networks:
+      - sncr_network
+    restart: unless-stopped
+    command: >
+      sh -c "
+        echo 'Waiting for database...' &&
+        sleep 5 &&
+        python -m uvicorn src.interfaces.api:app 
+          --host 0.0.0.0 
+          --port 8000 
+          --workers ${API_WORKERS:-4}
+      "
+
+  # ETL Job (runs extraction and loading)
+  # This is a one-time job that can be triggered manually
+  etl:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: sncr_etl
+    environment:
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_DB: ${POSTGRES_DB:-sncr_db}
+      POSTGRES_USER: ${POSTGRES_USER:-sncr_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change_me_in_production}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      BASE_URL: ${BASE_URL:-https://data-engineer-challenge-production.up.railway.app}
+      TARGET_STATES: ${TARGET_STATES:-SP,MG,RJ}
+      MAX_RETRIES: ${MAX_RETRIES:-5}
+      RETRY_BACKOFF_FACTOR: ${RETRY_BACKOFF_FACTOR:-2}
+      REQUEST_TIMEOUT: ${REQUEST_TIMEOUT:-30}
+      CHECKPOINT_DIR: /app/checkpoints
+    volumes:
+      - ./logs:/app/logs
+      - ./checkpoints:/app/checkpoints
+      - ./data:/app/data
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - sncr_network
+    profiles:
+      - etl  # Only starts when explicitly specified
+    command: python scripts/run_etl.py
+
+  # ETL Job with Playwright (for sites with JavaScript/captcha)
+  etl-playwright:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: sncr_etl_playwright
+    environment:
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_DB: ${POSTGRES_DB:-sncr_db}
+      POSTGRES_USER: ${POSTGRES_USER:-sncr_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change_me_in_production}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      BASE_URL: ${BASE_URL:-https://data-engineer-challenge-production.up.railway.app}
+      TARGET_STATES: ${TARGET_STATES:-SP,MG,RJ}
+      PLAYWRIGHT_HEADLESS: ${PLAYWRIGHT_HEADLESS:-true}
+    volumes:
+      - ./logs:/app/logs
+      - ./checkpoints:/app/checkpoints
+      - ./data:/app/data
+      - ./data_download:/app/data_download
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - sncr_network
+    profiles:
+      - etl-playwright  # Only starts when explicitly specified
+    command: python scripts/run_etl_playwright.py
+
+networks:
+  sncr_network:
+    driver: bridge
+
+volumes:
+  postgres_data:
+    driver: local
